@@ -3,6 +3,7 @@ package openuri
 import (
 	"context"
 	"io"
+	"io/fs"
 	"net/url"
 	"os"
 )
@@ -26,6 +27,9 @@ func (c *Client) OpenContext(ctx context.Context, fn string) (io.ReadCloser, err
 		if c.AllowLocal {
 			// attempt local open
 			return os.Open(fn)
+		}
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -56,6 +60,48 @@ func (c *Client) OpenURLContext(ctx context.Context, u *url.URL) (io.ReadCloser,
 	return proto.OpenURI(ctx, c, u)
 }
 
+func (c *Client) Stat(fn string) (fs.FileInfo, error) {
+	return c.StatContext(context.Background(), fn)
+}
+
+func (c *Client) StatContext(ctx context.Context, fn string) (fs.FileInfo, error) {
+	u, err := url.Parse(fn)
+	if err != nil || !u.IsAbs() {
+		if c.AllowLocal {
+			// attempt local open
+			return os.Stat(fn)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return c.StatURLContext(ctx, u)
+}
+
+func (c *Client) StatURL(u *url.URL) (fs.FileInfo, error) {
+	return c.StatURLContext(context.Background(), u)
+}
+
+func (c *Client) StatURLContext(ctx context.Context, u *url.URL) (fs.FileInfo, error) {
+	if !u.IsAbs() {
+		return nil, ErrNotAbsolute
+	}
+	if !c.AllowLocal && u.Scheme == "file" {
+		return nil, ErrProtocolNotSupported
+	}
+	proto, ok := Protocols[u.Scheme]
+	if !ok {
+		return nil, ErrProtocolNotSupported
+	}
+	if !c.AllowLocal && proto == Local {
+		// we double check if AllowLocal=false in case file:// was renamed
+		return nil, ErrProtocolNotSupported
+	}
+
+	return proto.StatURI(ctx, c, u)
+}
+
 // default handlers
 func Open(fn string) (io.ReadCloser, error) {
 	return DefaultClient.Open(fn)
@@ -71,4 +117,20 @@ func OpenURL(u *url.URL) (io.ReadCloser, error) {
 
 func OpenURLContext(ctx context.Context, u *url.URL) (io.ReadCloser, error) {
 	return DefaultClient.OpenURLContext(ctx, u)
+}
+
+func Stat(fn string) (fs.FileInfo, error) {
+	return DefaultClient.Stat(fn)
+}
+
+func StatContext(ctx context.Context, fn string) (fs.FileInfo, error) {
+	return DefaultClient.StatContext(ctx, fn)
+}
+
+func StatURL(u *url.URL) (fs.FileInfo, error) {
+	return DefaultClient.StatURL(u)
+}
+
+func StatURLContext(ctx context.Context, u *url.URL) (fs.FileInfo, error) {
+	return DefaultClient.StatURLContext(ctx, u)
 }
